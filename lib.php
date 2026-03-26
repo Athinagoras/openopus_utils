@@ -39,12 +39,17 @@
   {
     foreach ($insert as $ini => $ins)
     {
-      $insert[$ini] = mysqli_real_escape_string ($mysql, $ins);
+      if (is_null ($ins))
+      {
+        $values[] = "null";
+      }
+      else
+      {
+        $values[] = "'". mysqli_real_escape_string ($mysql, (string) $ins). "'";
+      }
     }
 
-    $query = "insert into {$table} (". implode (", ", array_keys ($insert)). ") values ('". implode ("','", $insert). "')";
-    $query = str_replace ("''", "null", $query);
-    
+    $query = "insert into {$table} (". implode (", ", array_keys ($insert)). ") values (". implode (",", $values). ")";
     mysqli_query ($mysql, $query);
 
     return mysqli_insert_id ($mysql);
@@ -54,20 +59,26 @@
 
   function mysqlmultinsert ($mysql, $table, $lines)
   {
-    //print_r ([$table, $lines]);
     foreach ($lines as $line)
     {
+      $insert = Array ();
+
       foreach ($line as $ini => $ins)
       {
-        $insert[$ini] = mysqli_real_escape_string ($mysql, $ins);
+        if (is_null ($ins))
+        {
+          $insert[$ini] = "null";
+        }
+        else
+        {
+          $insert[$ini] = "'". mysqli_real_escape_string ($mysql, (string) $ins). "'";
+        }
       }
 
-      $values[] = "('". implode ("','", $insert). "')";
+      $values[] = "(". implode (",", $insert). ")";
     }
 
     $query = "insert ignore into {$table} (". implode (", ", array_keys ($lines[0])). ") values ". implode (", ", $values);
-    $query = str_replace ("''", "null", $query);
-    
     mysqli_query ($mysql, $query);
 
     return mysqli_insert_id ($mysql);
@@ -79,17 +90,29 @@
   {
     foreach ($update as $upa => $ups)
     {
-      $set[] = "{$upa}='". mysqli_real_escape_string ($mysql, $ups) . "'";
+      if (is_null ($ups))
+      {
+        $set[] = "{$upa}=null";
+      }
+      else
+      {
+        $set[] = "{$upa}='". mysqli_real_escape_string ($mysql, (string) $ups) . "'";
+      }
     }
 
     foreach ($where as $wha => $whs)
     {
-      $wheres[] = "{$wha}='". mysqli_real_escape_string ($mysql, $whs) . "'";
+      if (is_null ($whs))
+      {
+        $wheres[] = "{$wha} is null";
+      }
+      else
+      {
+        $wheres[] = "{$wha}='". mysqli_real_escape_string ($mysql, (string) $whs) . "'";
+      }
     }
 
     $query = "update $table set ". implode (", ", $set). " where ". implode (" and ", $wheres);
-    $query = str_replace ("''", "null", $query);
-    
     mysqli_query ($mysql, $query);
 
     return mysqli_affected_rows ($mysql);
@@ -147,12 +170,12 @@
 
   // basic curl retrieving
 
-  function CURL_Internals ($url, $bust = true, $plusheader, $pluspost, $token, $usertoken = "")
+  function CURL_Internals ($url, $bust = true, $plusheader = false, $pluspost = false, $token = false, $usertoken = "")
   {
     $ts = time ();
     $ch = curl_init ();
 
-    $fp = fopen (DEBUG, "w");
+    $fp = @fopen (DEBUG, "w");
 
     $header = array();
     $header[] = 'Accept: text/xml,application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5';
@@ -200,7 +223,10 @@
     curl_setopt ($ch, CURLOPT_TIMEOUT, 200);
     //curl_setopt ($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt ($ch, CURLOPT_VERBOSE, false);
-    curl_setopt ($ch, CURLOPT_STDERR, $fp);
+    if ($fp)
+    {
+      curl_setopt ($ch, CURLOPT_STDERR, $fp);
+    }
 
     if ($pluspost)
     {
@@ -211,7 +237,10 @@
     $api = curl_exec ($ch);
 
     curl_close ($ch);
-    fclose ($fp);
+    if ($fp)
+    {
+      fclose ($fp);
+    }
 
     return $api;
   }
@@ -611,8 +640,9 @@
   function compilationdigest ($apireturn, $force = false, $strict = false)
   {
     $total = sizeof ($apireturn["recordings"]);
-    $compilations = array_count_values (array_column ($apireturn["recordings"], "singletrack"))["true"];
-    $ratio = $compilations / $total;
+    $singletracks = array_count_values (array_column ($apireturn["recordings"], "singletrack"));
+    $compilations = (isset ($singletracks["true"]) ? $singletracks["true"] : 0);
+    $ratio = ($total ? $compilations / $total : 0);
 
     $apireturn["status"]["rows"] = $total;
     $apireturn["status"]["stats"]["singletrack"] = $compilations;
@@ -698,6 +728,12 @@
 
   function orderperformers ($pfs) 
   {
+    $pfs_first = [];
+    $pfs_middle = [];
+    $pfs_prelast = [];
+    $pfs_last = [];
+    $pfs_filtorch = [];
+
     foreach ($pfs as $pfr)
     {
       switch ($pfr["role"])
